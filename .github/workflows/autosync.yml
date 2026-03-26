@@ -1,0 +1,60 @@
+name: Sync Fork
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
+  workflow_dispatch:    # Allows manual trigger
+
+jobs:
+  sync:
+    name: Sync Fork
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: main
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          # Replace the URL below with the upstream repository URL
+          git remote add upstream https://github.com/nzp-team/nzp-team.github.io.git
+          git fetch upstream
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          UPSTREAM_LATEST=$(git rev-parse upstream/main)
+          LOCAL_LATEST=$(git rev-parse main)
+          echo "upstream_commit=$UPSTREAM_LATEST" >> $GITHUB_OUTPUT
+          echo "local_commit=$LOCAL_LATEST" >> $GITHUB_OUTPUT
+          if [ "$UPSTREAM_LATEST" != "$LOCAL_LATEST" ]; then
+            echo "Updates found"
+            echo "update_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No updates"
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create pull request to sync
+        if: steps.check.outputs.update_needed == 'true'
+        uses: peter-evans/create-pull-request@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Sync: Update from upstream"
+          body: "This PR updates the fork with the latest changes from upstream."
+          base: main
+          head: sync-upstream
+
+      - name: Merge upstream changes directly (Optional)
+        if: steps.check.outputs.update_needed == 'true'
+        run: |
+          git checkout main
+          git merge upstream/main --no-edit
+          git push origin main
